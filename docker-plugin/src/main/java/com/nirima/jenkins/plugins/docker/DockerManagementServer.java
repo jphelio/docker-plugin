@@ -6,7 +6,6 @@ import hudson.model.Describable;
 import hudson.model.Descriptor;
 import hudson.model.Failure;
 import hudson.model.Hudson;
-import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
@@ -25,7 +24,7 @@ public class DockerManagementServer  implements Describable<DockerManagementServ
     final DockerCloud theCloud;
 
     public Descriptor<DockerManagementServer> getDescriptor() {
-        return Jenkins.getInstance().getDescriptorByType(DescriptorImpl.class);
+        return Hudson.getInstance().getDescriptorByType(DescriptorImpl.class);
     }
 
     public String getUrl() {

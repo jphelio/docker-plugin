@@ -1,10 +1,11 @@
 package com.nirima.jenkins.plugins.docker.builder;
 
-import com.nirima.jenkins.plugins.docker.*;
 import shaded.com.google.common.base.Strings;
 
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.DockerException;
+import com.nirima.jenkins.plugins.docker.DockerSimpleTemplate;
+import com.nirima.jenkins.plugins.docker.DockerTemplateBase;
 
 import org.apache.commons.io.IOUtils;
 import org.jenkinsci.plugins.tokenmacro.TokenMacro;
@@ -99,7 +100,7 @@ public class DockerBuilderControlOptionRun extends DockerBuilderControlCloudOpti
                 volumesString, volumesFrom, environmentsString, lxcConfString, xHostname,
                 memoryLimit, cpuShares, bindPorts, bindAllPorts, privileged, tty, macAddress);
 
-        String containerId = DockerCloud.runContainer(template, client, null);
+        String containerId = template.provisionNew(client);
 
         LOGGER.log(Level.INFO, "Started container {0}", containerId);
         getLaunchAction(build).started(client, containerId);
@@ -124,4 +125,7 @@ public class DockerBuilderControlOptionRun extends DockerBuilderControlCloudOpti
         }
 
     }
+
+
+
 }

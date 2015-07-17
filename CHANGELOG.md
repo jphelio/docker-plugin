@@ -3,19 +3,6 @@
 
 ## Next version
 
-* Set default timeout to 10 minutes. For existed installations recommended update from 0 to 10. 
-
-## 0.10.0
-
-* Unbunble launchers
-* Improve provisioning
-* Change '@' delimiter in slave name to '-'
-* Fix not removed "suspended" slaves introduced in 0.9.4
-
-## 0.9.4
-
-* Fixes termination errors. Sync OnceRetentionStrategy implementation.  
-
 ## 0.9.3
 
 * Hide Docker strategies for non-docker slaves.

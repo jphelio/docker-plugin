@@ -37,18 +37,28 @@ public class DockerTemplateTest {
 
 
     private DockerTemplate getDockerTemplateInstanceWithDNSHost(String dnsString) {
-        final DockerTemplateBase dockerTemplateBase = new DockerTemplateBase(image, dnsString,
-                dockerCommand, volumesString, volumesString, environmentsString,
-                lxcConfString, hostname, memoryLimit, cpuShares, bindPorts, bindAllPorts, privileged, tty, macAddress);
-        DockerTemplate dockerTemplate = new DockerTemplate(
-                dockerTemplateBase,
-                labelString,
+        DockerTemplate instance = new DockerTemplate(image, labelString,
                 remoteFs,
                 remoteFsMapping,
-                instanceCapStr
-        );
+                credentialsId, idleTerminationMinutes,
+                sshLaunchTimeoutMinutes,
+                jvmOptions, javaPath,
+                memoryLimit, cpuShares,
+                prefixStartSlaveCmd, suffixStartSlaveCmd,
+                instanceCapStr, dnsString,
+                dockerCommand,
+                volumesString, volumesFrom,
+                environmentsString,
+                lxcConfString,
+                hostname,
+                bindPorts,
+                bindAllPorts,
+                privileged,
+                tty,
+                macAddress);
 
-        return dockerTemplate;
+              
+        return instance;
     }
 
     @Test
@@ -57,23 +67,23 @@ public class DockerTemplateTest {
         String[] expected;
 
         instance = getDockerTemplateInstanceWithDNSHost("");
-        assertEquals(0, instance.getDockerTemplateBase().dnsHosts.length);
+        assertEquals(0, instance.dnsHosts.length);
 
         instance = getDockerTemplateInstanceWithDNSHost("8.8.8.8");
         expected = new String[]{"8.8.8.8"};
 
-        assertEquals(1, instance.getDockerTemplateBase().dnsHosts.length);
-        assertArrayEquals(expected, instance.getDockerTemplateBase().dnsHosts);
+        assertEquals(1, instance.dnsHosts.length);
+        assertArrayEquals(expected, instance.dnsHosts);
 
         instance = getDockerTemplateInstanceWithDNSHost("8.8.8.8 8.8.4.4");
         expected = new String[]{"8.8.8.8", "8.8.4.4"};
 
-        assertEquals(2, instance.getDockerTemplateBase().dnsHosts.length);
-        assertArrayEquals(expected, instance.getDockerTemplateBase().dnsHosts);
+        assertEquals(2, instance.dnsHosts.length);
+        assertArrayEquals(expected, instance.dnsHosts);
         
-        assertTrue("Error, wrong memoryLimit", 1024 == instance.getDockerTemplateBase().memoryLimit);
+        assertTrue("Error, wrong memoryLimit", 1024 == instance.memoryLimit);
 
-        assertTrue("Error, wrong cpuShares", 1000 == instance.getDockerTemplateBase().cpuShares);
+        assertTrue("Error, wrong cpuShares", 1000 == instance.cpuShares);
     }
 
 }

@@ -1,9 +1,6 @@
 package com.nirima.jenkins.plugins.docker.builder;
 
-import com.github.dockerjava.core.DockerClientConfig;
-import com.nirima.jenkins.plugins.docker.DockerCloud;
-import com.nirima.jenkins.plugins.docker.client.ClientBuilderForPlugin;
-import com.nirima.jenkins.plugins.docker.client.ClientConfigBuilderForPlugin;
+import com.github.dockerjava.jaxrs.DockerCmdExecFactoryImpl;
 import shaded.com.google.common.base.Optional;
 import shaded.com.google.common.base.Splitter;
 import shaded.com.google.common.base.Throwables;
@@ -13,6 +10,8 @@ import com.github.dockerjava.api.DockerException;
 
 import com.github.dockerjava.api.command.PushImageCmd;
 import com.github.dockerjava.api.model.Identifier;
+import com.github.dockerjava.core.DockerClientBuilder;
+import com.github.dockerjava.core.DockerClientConfig;
 import com.nirima.jenkins.plugins.docker.DockerSlave;
 import com.nirima.jenkins.plugins.docker.action.DockerBuildImageAction;
 import hudson.Extension;
@@ -31,7 +30,10 @@ import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.tokenmacro.TokenMacro;
 import org.kohsuke.stapler.DataBoundConstructor;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Serializable;
 
 /**
  * Builder extension to build / publish an image from a Dockerfile.
@@ -60,12 +62,11 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
 
         FilePath fpChild;
 
-        final String tagsToUse;
+        final String tagToUse;
         final String url;
         // Marshal the builder across the wire.
-        private transient DockerClient _client;
+        final transient DockerClient client;
 
-        final DockerClientConfig clientConfig;
 
         Run(final AbstractBuild build, final Launcher launcher, final BuildListener listener) {
             this.build = build;
@@ -74,54 +75,10 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
 
             fpChild = new FilePath(build.getWorkspace(), dockerFileDirectory);
 
-            tagsToUse = getTag(build, launcher, listener);
+            tagToUse = getTag(build, launcher, listener);
             url = getUrl(build);
-
-            Optional<DockerCloud> cloudThatBuildRanOn = getCloudForBuild(build);
-
-            if( cloudThatBuildRanOn.isPresent() ) {
-
-                // Don't build it yet. This may happen on a remote server.
-                clientConfig = ClientConfigBuilderForPlugin.dockerClientConfig()
-                        .forCloud(cloudThatBuildRanOn.get()).build();
-
-            }else{
-                clientConfig = null;
-            }
-
-        }
-
-        protected Iterable<String> getTagsToUse() {
-            return Splitter.on(" ").omitEmptyStrings().trimResults().split(tagsToUse);
-        }
-
-
-        /**
-         * If the build was on a cloud, get the ID of that cloud.
-         * @param build
-         * @return
-         */
-        public Optional<DockerCloud> getCloudForBuild(AbstractBuild build) {
-
-            Node node = build.getBuiltOn();
-            if( node instanceof DockerSlave ) {
-                DockerSlave slave = (DockerSlave)node;
-                return Optional.of(slave.getCloud());
-            }
-
-            return Optional.absent();
-        }
-
-        private DockerClient getClient() {
-
-            if( _client == null ) {
-
-                if( clientConfig == null )
-                    throw new RuntimeException("Could not get client because we could not find the cloud that the project was built on. What this build run on Docker?");
-
-                _client = ClientBuilderForPlugin.getInstance(clientConfig).build();
-            }
-            return _client;
+            // Marshal the builder across the wire.
+            client = getDockerClient(build);
         }
 
         boolean run() throws IOException, InterruptedException {
@@ -136,14 +93,14 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
             if( !id.isPresent() )
                 return false;
 
-            build.addAction( new DockerBuildImageAction(url, id.get(), tagsToUse, cleanupWithJenkinsJobDelete, pushOnSuccess) );
+            build.addAction( new DockerBuildImageAction(url, id.get(), tagToUse, cleanupWithJenkinsJobDelete, pushOnSuccess) );
             build.save();
 
 
 
             if( pushOnSuccess ) {
 
-                listener.getLogger().println("Pushing " + tagsToUse);
+                listener.getLogger().println("Pushing " + tagToUse);
                 String stringResponse = pushImage();
                 listener.getLogger().println("Docker Push Response : " + stringResponse);
             }
@@ -170,7 +127,7 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
         }
 
         private void cleanImages(String id) {
-            getClient().removeImageCmd(id)
+            client.removeImageCmd(id)
                 .withForce()
                 .exec();
         }
@@ -180,29 +137,13 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
           return fpChild.act(new FilePath.FileCallable<String>() {
                 public String invoke(File f, VirtualChannel channel) throws IOException, InterruptedException {
                     try {
-                      listener.getLogger().println("Docker Build : build with tags " + tagsToUse + " at path " + f.getAbsolutePath());
+                      listener.getLogger().println("Docker Build : build with tag " + tagToUse + " at path " + f.getAbsolutePath());
 
-                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        InputStream is = client.buildImageCmd(f)
+                            .withTag(tagToUse)
+                            .exec();
 
-                        for(String tag : getTagsToUse() ) {
-                            listener.getLogger().println("Docker Build : building tag " + tag);
-
-                            try {
-                                InputStream is = getClient().buildImageCmd(f)
-                                        .withTag(tag)
-                                        .exec();
-
-                                IOUtils.copy(is, baos);
-                            } catch(Exception ex) {
-                                listener.getLogger().println(ex.getMessage());
-                                ex.printStackTrace( listener.getLogger());
-                                listener.getLogger().println("Error attempting to tag " + tag + ". Continuing anyway.");
-                            }
-                        }
-
-
-
-                        return baos.toString();
+                        return IOUtils.toString(is);
 
                     } catch (DockerException e) {
                         throw Throwables.propagate(e);
@@ -213,23 +154,17 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
         }
 
         private String pushImage() throws IOException {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-
-            for(String tagToUse : getTagsToUse()) {
-
-                if (!tagToUse.toLowerCase().equals(tagToUse)) {
-                    listener.getLogger().println("ERROR: Docker will refuse to push tag name " + tagToUse + " because it uses upper case.");
-                }
-
-                Identifier identifier = Identifier.fromCompoundString(tagToUse);
-
-                PushImageCmd pushImageCmd = getClient().pushImageCmd(identifier);
-
-                InputStream pushResponse = pushImageCmd.exec();
-
-                IOUtils.copy(pushResponse, byteArrayOutputStream);
+            if( !tagToUse.toLowerCase().equals(tagToUse) ) {
+                listener.getLogger().println("ERROR: Docker will refuse to push tag name " + tagToUse + " because it uses upper case.");
             }
-            return byteArrayOutputStream.toString();
+
+            Identifier identifier = Identifier.fromCompoundString(tagToUse);
+
+            PushImageCmd pushImageCmd = client.pushImageCmd(identifier);
+
+            InputStream pushResponse = pushImageCmd.exec();
+
+            return IOUtils.toString(pushResponse);
         }
 
     }
@@ -253,6 +188,16 @@ public class DockerBuilderPublisher extends Builder implements Serializable {
     }
 
 
+    private DockerClient getDockerClient(AbstractBuild build) {
+
+        Node node = build.getBuiltOn();
+        if( node instanceof DockerSlave ) {
+            DockerSlave slave = (DockerSlave)node;
+            return slave.getCloud().connect();
+        }
+
+        return null;
+    }
 
     private String getUrl(AbstractBuild build) {
         Node node = build.getBuiltOn();
